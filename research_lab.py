@@ -405,7 +405,7 @@ def stream_synthesis(api_key: str, model_name: str, prompt: str):
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
         "HTTP-Referer": "https://research-lab.streamlit.app",
-        "X-Title": "MSBA Research Lab",
+        "X-Title": "LitRevSynth",
     }
     payload = {
         "model":  model_name,
