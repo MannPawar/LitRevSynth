@@ -801,7 +801,7 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════════════════════
 #  MAIN LAYOUT
 # ═══════════════════════════════════════════════════════════════════
-st.markdown('<h1 class="lab-title">Literature Review Engine</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="lab-title">LitRevSynth</h1>', unsafe_allow_html=True)
 st.markdown(
     '<p class="lab-sub">Semantic Scholar · OpenRouter · Streamlit Edition</p>',
     unsafe_allow_html=True)
