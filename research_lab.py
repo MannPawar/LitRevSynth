@@ -25,12 +25,12 @@ MAX_WORKERS    = 8
  
 # OpenRouter model options
 MODEL_OPTIONS = {
-    "qwen/qwen3.6-plus-preview          (free)":                "qwen/qwen3.6-plus-preview:free",
+    "google/gemini-3.1-flash-lite-preview (fast)":          "google/gemini-3.1-flash-lite-preview",
+    "qwen/qwen3.6-plus-preview          (free)":            "qwen/qwen3.6-plus-preview:free",
     "meta-llama/llama-3.3-70b-instruct  (fast · recommended)": "meta-llama/llama-3.3-70b-instruct",
-    "deepseek/deepseek-r1               (higher quality)":      "deepseek/deepseek-r1",
+    "deepseek/deepseek-r1               (higher quality)":  "deepseek/deepseek-r1",
 }
-DEFAULT_MODEL = "qwen/qwen3.6-plus-preview:free"
- 
+DEFAULT_MODEL = "google/gemini-3.1-flash-lite-preview"
 # ═══════════════════════════════════════════════════════════════════
 #  PAGE CONFIG  — must be first Streamlit call
 # ═══════════════════════════════════════════════════════════════════
