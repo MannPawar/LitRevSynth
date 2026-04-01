@@ -30,7 +30,7 @@ MODEL_OPTIONS = {
     "meta-llama/llama-3.3-70b-instruct  (fast · recommended)": "meta-llama/llama-3.3-70b-instruct",
     "deepseek/deepseek-r1               (higher quality)":  "deepseek/deepseek-r1",
 }
-DEFAULT_MODEL = "google/gemini-3.1-flash-lite-preview"
+DEFAULT_MODEL = "deepseek/deepseek-r1"
 # ═══════════════════════════════════════════════════════════════════
 #  PAGE CONFIG  — must be first Streamlit call
 # ═══════════════════════════════════════════════════════════════════
