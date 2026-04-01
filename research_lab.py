@@ -1,16 +1,15 @@
 """
 MSBA Research Lab — 3-Phase Literature Engine v4
-Cloud edition: Google Gemini API · Parallel Semantic Scholar · Streamlit Cloud
+Cloud edition: Ollama (cloud) · Parallel Semantic Scholar · Streamlit Cloud
 """
-
+ 
 import os, re, json, sqlite3, time, math, requests, logging
 import concurrent.futures
 from datetime import datetime
 import streamlit as st
-import google.generativeai as genai
-
+ 
 logging.basicConfig(level=logging.ERROR)
-
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  CONFIG
 # ═══════════════════════════════════════════════════════════════════
@@ -23,14 +22,14 @@ FETCH_PER_CALL = 20
 TOP_N          = 10
 MIN_FINAL      = 8
 MAX_WORKERS    = 8
-
-# Model options — Flash is fastest & cheapest; Pro for higher quality
+ 
+# OpenRouter model options
 MODEL_OPTIONS = {
-    "gemini-2.0-flash  (fast · recommended)": "gemini-2.0-flash",
-    "gemini-2.5-pro    (higher quality)":      "gemini-2.5-pro",
+    "meta-llama/llama-3.3-70b-instruct  (fast · recommended)": "meta-llama/llama-3.3-70b-instruct",
+    "deepseek/deepseek-r1               (higher quality)":      "deepseek/deepseek-r1",
 }
-DEFAULT_MODEL = "gemini-2.0-flash"
-
+DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct"
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  PAGE CONFIG  — must be first Streamlit call
 # ═══════════════════════════════════════════════════════════════════
@@ -40,14 +39,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  CSS
 # ═══════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=JetBrains+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap');
-
+ 
 :root {
     --bg:     #0b0e14;
     --surf:   #111621;
@@ -62,10 +61,18 @@ st.markdown("""
     --dim:    #6b7394;
     --muted:  #3a4060;
 }
-
-/* ── hide sidebar collapse arrow ── */
-[data-testid="collapsedControl"] { display: none !important; }
-
+ 
+/* ── hide sidebar collapse / expand arrow (all Streamlit versions) ── */
+[data-testid="collapsedControl"],
+[data-testid="baseButton-headerNoPadding"],
+button[kind="headerNoPadding"],
+[data-testid="stSidebarCollapsedControl"],
+.st-emotion-cache-jnd7a1,
+section[data-testid="stSidebar"] > div:first-child > button,
+[data-testid="stSidebarNav"] ~ button {
+    display: none !important;
+}
+ 
 /* ── global background ── */
 html, body,
 [data-testid="stAppViewContainer"],
@@ -76,7 +83,7 @@ div[class*="block-container"] {
     background-color: var(--bg) !important;
     color: var(--text) !important;
 }
-
+ 
 /* ── sidebar ── */
 [data-testid="stSidebar"] {
     background-color: var(--surf) !important;
@@ -87,14 +94,14 @@ div[class*="block-container"] {
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 { color: var(--gold) !important; }
-
+ 
 /* ── typography ── */
 h1, h2, h3 {
     font-family: 'Cormorant Garamond', Georgia, serif !important;
     color: var(--gold) !important;
 }
 p, li, span, label, div { font-family: 'Inter', sans-serif !important; }
-
+ 
 /* ── text input ── */
 [data-testid="stTextInput"] input {
     background: var(--surf) !important;
@@ -110,7 +117,7 @@ p, li, span, label, div { font-family: 'Inter', sans-serif !important; }
     box-shadow: 0 0 0 2px rgba(201,168,76,0.15) !important;
 }
 [data-testid="stTextInput"] input::placeholder { color: var(--muted) !important; }
-
+ 
 /* ── primary button ── */
 [data-testid="stButton"] button[kind="primary"] {
     background: linear-gradient(135deg,#c9a84c,#9a7535) !important;
@@ -122,7 +129,7 @@ p, li, span, label, div { font-family: 'Inter', sans-serif !important; }
     letter-spacing: 0.08em !important;
 }
 [data-testid="stButton"] button[kind="primary"]:hover { opacity: 0.85 !important; }
-
+ 
 /* ── secondary buttons ── */
 [data-testid="stButton"] button {
     background: var(--surf2) !important;
@@ -136,7 +143,7 @@ p, li, span, label, div { font-family: 'Inter', sans-serif !important; }
     border-color: var(--gold-d) !important;
     color: var(--gold) !important;
 }
-
+ 
 /* ── download button ── */
 [data-testid="stDownloadButton"] button {
     background: var(--surf2) !important;
@@ -149,7 +156,7 @@ p, li, span, label, div { font-family: 'Inter', sans-serif !important; }
 [data-testid="stDownloadButton"] button:hover {
     background: rgba(78,205,196,0.08) !important;
 }
-
+ 
 /* ── selectbox ── */
 [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
     background: var(--surf2) !important;
@@ -157,13 +164,13 @@ p, li, span, label, div { font-family: 'Inter', sans-serif !important; }
     color: var(--text) !important;
     border-radius: 4px !important;
 }
-
+ 
 /* ── progress bar ── */
 [data-testid="stProgress"] > div > div {
     background: linear-gradient(90deg,var(--gold-d),var(--gold)) !important;
 }
 [data-testid="stProgress"] { background: var(--surf2) !important; border-radius: 2px !important; }
-
+ 
 /* ── expander ── */
 [data-testid="stExpander"] {
     border: 1px solid var(--border) !important;
@@ -180,7 +187,7 @@ details summary {
     padding: 0.5rem 0.75rem !important;
 }
 details summary:hover { color: var(--gold) !important; }
-
+ 
 /* ── alerts: force readable on dark bg ── */
 [data-testid="stAlert"], div[data-baseweb="notification"] {
     border-radius: 4px !important;
@@ -210,11 +217,11 @@ div[data-baseweb="notification"][kind="negative"] {
 }
 div[data-baseweb="notification"][kind="negative"] *,
 div[data-baseweb="notification"][kind="negative"] p { color: var(--red) !important; }
-
+ 
 hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
 ::-webkit-scrollbar { width: 5px; background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
+ 
 /* ── custom layout components ── */
 .lab-title {
     font-family: 'Cormorant Garamond', serif !important;
@@ -303,7 +310,7 @@ hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
     margin-right: 0.35rem;
     letter-spacing: 0.04em;
 }
-
+ 
 /* ── review essay typography ── */
 [data-testid="stMarkdown"] h1 {
     font-family: 'Cormorant Garamond', serif !important;
@@ -363,7 +370,7 @@ hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
 }
 </style>
 """, unsafe_allow_html=True)
-
+ 
 # ── session state ─────────────────────────────────────────────────
 for k, v in {
     "papers_all": [], "papers_top": [], "review": "",
@@ -372,36 +379,104 @@ for k, v in {
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
-
-
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
-#  GEMINI CLIENT
+#  OPENROUTER CLIENT  (OpenAI-compatible REST endpoint)
 # ═══════════════════════════════════════════════════════════════════
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+ 
 def get_api_key() -> str:
     """
-    Resolve the Gemini API key.
-    Priority: st.secrets → environment variable → manual input in sidebar.
+    Resolve the OpenRouter API key.
+    Priority: st.secrets → environment variable → sidebar input.
     """
-    # 1. Streamlit Cloud secrets (set in the dashboard)
     try:
-        return st.secrets["GEMINI_API_KEY"]
+        return st.secrets.get("OPENROUTER_API_KEY", "")
     except Exception:
         pass
-    # 2. Environment variable (local .env / shell export)
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if key:
-        return key
-    # 3. Let caller handle missing key
-    return ""
-
-
-@st.cache_resource
-def get_client(api_key: str):
-    """Configure and return a Gemini generative model factory."""
-    genai.configure(api_key=api_key)
-    return genai
-
-
+    return os.environ.get("OPENROUTER_API_KEY", "")
+ 
+ 
+def stream_synthesis(api_key: str, model_name: str, prompt: str):
+    """Stream OpenRouter /v1/chat/completions response, yielding text chunks."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "https://research-lab.streamlit.app",
+        "X-Title": "MSBA Research Lab",
+    }
+    payload = {
+        "model":  model_name,
+        "stream": True,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
+        ],
+    }
+    with requests.post(
+        f"{OPENROUTER_BASE_URL}/v1/chat/completions",
+        headers=headers,
+        json=payload,
+        stream=True,
+        timeout=120,
+    ) as resp:
+        resp.raise_for_status()
+        for raw_line in resp.iter_lines():
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+            if line.startswith("data: "):
+                line = line[6:]
+            if line.strip() in ("", "[DONE]"):
+                continue
+            try:
+                data = json.loads(line)
+                delta = data["choices"][0].get("delta", {})
+                text  = delta.get("content") or ""
+                if text:
+                    yield text
+            except (json.JSONDecodeError, KeyError, IndexError):
+                continue
+ 
+ 
+def fallback_synthesis(api_key: str, model_name: str, topic: str, papers: list) -> str:
+    """Non-streaming fallback with a simpler prompt."""
+    summary = "\n".join(
+        f"{i+1}. {p['title']} — {p['authors'][0] if p['authors'] else '?'} "
+        f"({p['year']}) [{p['citations']} citations]"
+        for i, p in enumerate(papers))
+    prompt = (
+        f'Write a literature review on "{topic}".\n\nPapers:\n{summary}\n\n'
+        f"Sections: Introduction, Key Contributions, Research Gaps, References.\n"
+        f"Start with '# Literature Review: {topic}'. Academic prose. Min 500 words."
+    )
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "https://research-lab.streamlit.app",
+        "X-Title": "MSBA Research Lab",
+    }
+    try:
+        resp = requests.post(
+            f"{OPENROUTER_BASE_URL}/v1/chat/completions",
+            headers=headers,
+            json={
+                "model":  model_name,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": prompt},
+                ],
+            },
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"# Literature Review: {topic}\n\nSynthesis failed: {e}"
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  DATABASE
 # ═══════════════════════════════════════════════════════════════════
@@ -413,8 +488,8 @@ def db_connect() -> sqlite3.Connection:
         score REAL DEFAULT 0, topic TEXT)""")
     conn.commit()
     return conn
-
-
+ 
+ 
 def db_batch_upsert(conn: sqlite3.Connection, papers: list, topic: str):
     conn.executemany(
         """INSERT OR REPLACE INTO papers
@@ -424,8 +499,8 @@ def db_batch_upsert(conn: sqlite3.Connection, papers: list, topic: str):
           p["citations"], p["abstract"], p["url"], p["source_tag"], topic)
          for p in papers])
     conn.commit()
-
-
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  PHASE 1 — PARALLEL HARVEST
 # ═══════════════════════════════════════════════════════════════════
@@ -439,8 +514,8 @@ ANGLE_TEMPLATES = [
     "{t} challenges open problems",
     "{t} framework system design",
 ]
-
-
+ 
+ 
 def _make_jobs(topic: str) -> list:
     jobs = []
     for tpl in ANGLE_TEMPLATES:
@@ -448,8 +523,8 @@ def _make_jobs(topic: str) -> list:
         jobs.append((q, ""))
         jobs.append((q, f"&year={RECENT_CUTOFF}-{CURRENT_YEAR}"))
     return jobs
-
-
+ 
+ 
 def _fetch_one(args: tuple) -> list:
     query, extra = args
     url = (f"{S2_BASE}?query={requests.utils.quote(query)}"
@@ -466,13 +541,13 @@ def _fetch_one(args: tuple) -> list:
         except Exception:
             time.sleep(1)
     return []
-
-
+ 
+ 
 def harvest_parallel(topic: str) -> list:
     jobs = _make_jobs(topic)
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         batches = list(pool.map(_fetch_one, jobs))
-
+ 
     seen: set = set()
     papers: list = []
     for batch in batches:
@@ -493,8 +568,8 @@ def harvest_parallel(topic: str) -> list:
                 "source_tag": "RECENT" if year >= RECENT_CUTOFF else "SEMINAL",
             })
     return papers
-
-
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  PHASE 2 — SCORE & SELECT TOP N
 # ═══════════════════════════════════════════════════════════════════
@@ -507,8 +582,8 @@ def score_paper(p: dict, tw: set) -> float:
     rec     = (1.5 if p["year"] >= RECENT_CUTOFF else
                0.5 if p["year"] >= RECENT_CUTOFF - 5 else 0.0)
     return cite + overlap * 3.0 + rec
-
-
+ 
+ 
 def rank_and_select(papers: list, topic: str) -> list:
     tw = set(re.findall(r"\w+", topic.lower()))
     pool = papers
@@ -516,13 +591,13 @@ def rank_and_select(papers: list, topic: str) -> list:
         pool = [p for p in papers if p.get("abstract") and p.get("citations", 0) >= floor]
         if len(pool) >= MIN_FINAL:
             break
-
+ 
     for p in pool:
         p["score"] = score_paper(p, tw)
     scored  = sorted(pool, key=lambda x: x["score"], reverse=True)
     seminal = [p for p in scored if p["source_tag"] == "SEMINAL"]
     recent  = [p for p in scored if p["source_tag"] == "RECENT"]
-
+ 
     n_rec = max(min(round(TOP_N * 0.4), len(recent)),  min(2, len(recent)))
     n_sem = max(min(TOP_N - n_rec,      len(seminal)), min(2, len(seminal)))
     sel   = seminal[:n_sem] + recent[:n_rec]
@@ -531,18 +606,18 @@ def rank_and_select(papers: list, topic: str) -> list:
     have  = {p["id"] for p in sel}
     sel  += [p for p in scored if p["id"] not in have][:max(0, MIN_FINAL - len(sel))]
     return sel[:max(TOP_N, MIN_FINAL)]
-
-
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
-#  PHASE 3 — SYNTHESIS  (Google Gemini API)
+#  PHASE 3 — SYNTHESIS  (Ollama cloud API)
 # ═══════════════════════════════════════════════════════════════════
 SYSTEM_PROMPT = (
     "You are a distinguished academic researcher writing formal literature reviews. "
     "You write ONLY in flowing Markdown prose. You NEVER output JSON or raw data. "
     "Your response always starts with a Markdown H1 heading."
 )
-
-
+ 
+ 
 def build_prompt(topic: str, papers: list) -> str:
     papers_block = ""
     for i, p in enumerate(papers, 1):
@@ -556,7 +631,7 @@ def build_prompt(topic: str, papers: list) -> str:
             f"URL:       {p['url']}\n"
             f"Abstract:\n{p['abstract']}\n"
         )
-
+ 
     return (
         f'You are writing a formal academic literature review on: "{topic}"\n\n'
         f'You have been given {len(papers)} carefully selected papers. '
@@ -606,43 +681,13 @@ def build_prompt(topic: str, papers: list) -> str:
         f'{"=" * 55}\n\n'
         f'Begin writing the literature review now:'
     )
-
-
-def stream_synthesis(gemini, model_name: str, prompt: str):
-    """Stream Gemini response, yielding text chunks."""
-    full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"
-    model = gemini.GenerativeModel(model_name)
-    response = model.generate_content(full_prompt, stream=True)
-    for chunk in response:
-        if chunk.text:
-            yield chunk.text
-
-
+ 
+ 
 def is_essay(text: str) -> bool:
     s = text.strip()
     return s.startswith("#") and not s.startswith("{") and len(s.split()) > 150
-
-
-def fallback_synthesis(gemini, model_name: str, topic: str, papers: list) -> str:
-    """Non-streaming fallback with a simpler prompt."""
-    summary = "\n".join(
-        f"{i+1}. {p['title']} — {p['authors'][0] if p['authors'] else '?'} "
-        f"({p['year']}) [{p['citations']} citations]"
-        for i, p in enumerate(papers))
-    prompt = (
-        f'{SYSTEM_PROMPT}\n\n'
-        f'Write a literature review on "{topic}".\n\nPapers:\n{summary}\n\n'
-        f"Sections: Introduction, Key Contributions, Research Gaps, References.\n"
-        f"Start with '# Literature Review: {topic}'. Academic prose. Min 500 words."
-    )
-    try:
-        model = gemini.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"# Literature Review: {topic}\n\nSynthesis failed: {e}"
-
-
+ 
+ 
 def save_bibtex(papers: list) -> str:
     lines = []
     for p in papers:
@@ -656,16 +701,16 @@ def save_bibtex(papers: list) -> str:
     with open("/tmp/references.bib", "w", encoding="utf-8") as f:
         f.write(content)
     return content
-
-
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  RENDER HELPERS
 # ═══════════════════════════════════════════════════════════════════
 def stat_html(n, label: str) -> str:
     return (f'<div class="stat-box"><div class="stat-n">{n}</div>'
             f'<div class="stat-l">{label}</div></div>')
-
-
+ 
+ 
 def card_html(p: dict, rank: int = None) -> str:
     tag   = "recent" if p["source_tag"] == "RECENT" else "seminal"
     badge = f'<span class="rbadge">#{rank}</span>' if rank else ""
@@ -681,8 +726,8 @@ def card_html(p: dict, rank: int = None) -> str:
         f'{tspan} <span>{auth}</span>'
         f'</div></div>'
     )
-
-
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  SIDEBAR
 # ═══════════════════════════════════════════════════════════════════
@@ -697,7 +742,7 @@ with st.sidebar:
         'MSBA · Literature Engine v4</p>',
         unsafe_allow_html=True)
     st.divider()
-
+ 
     # ── API key ───────────────────────────────────────────────────
     api_key = get_api_key()
     if not api_key:
@@ -706,22 +751,22 @@ with st.sidebar:
             'color:#e05c5c;letter-spacing:0.1em;text-transform:uppercase">'
             '⚠ API Key Required</p>', unsafe_allow_html=True)
         api_key = st.text_input(
-            "Gemini API Key", type="password",
-            placeholder="AIza...",
-            help="Get yours at aistudio.google.com",
+            "OpenRouter API Key", type="password",
+            placeholder="sk-or-...",
+            help="Get yours at openrouter.ai/keys",
             label_visibility="collapsed")
         if api_key:
             st.success("Key entered ✓")
         else:
-            st.caption("Set GEMINI_API_KEY in Streamlit secrets or enter above.")
+            st.caption("Set OPENROUTER_API_KEY in Streamlit secrets or enter above.")
     else:
         st.markdown(
             '<p style="font-family:\'JetBrains Mono\',monospace;font-size:0.68rem;'
             'color:#4caf84;letter-spacing:0.1em">● API key loaded</p>',
             unsafe_allow_html=True)
-
+ 
     st.divider()
-
+ 
     # ── Model selector ─────────────────────────────────────────────
     st.markdown(
         '<p style="font-family:\'JetBrains Mono\',monospace;font-size:0.68rem;'
@@ -732,9 +777,9 @@ with st.sidebar:
         label_visibility="collapsed")
     selected_model = MODEL_OPTIONS[model_label]
     st.session_state.selected_model = selected_model
-
+ 
     st.divider()
-
+ 
     # ── History ───────────────────────────────────────────────────
     st.markdown(
         '<p style="font-family:\'JetBrains Mono\',monospace;font-size:0.68rem;'
@@ -750,16 +795,16 @@ with st.sidebar:
             st.session_state.papers_top = h["top"]
             st.session_state.papers_all = h.get("all", [])
             st.session_state.elapsed    = h.get("elapsed", 0)
-
-
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  MAIN LAYOUT
 # ═══════════════════════════════════════════════════════════════════
 st.markdown('<h1 class="lab-title">Literature Review Engine</h1>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="lab-sub">Semantic Scholar · Google Gemini · Cloud Edition</p>',
+    '<p class="lab-sub">Semantic Scholar · OpenRouter · Streamlit Edition</p>',
     unsafe_allow_html=True)
-
+ 
 ic, bc = st.columns([5, 1])
 with ic:
     topic = st.text_input(
@@ -769,9 +814,9 @@ with bc:
     run = st.button(
         "▶  Generate", type="primary", use_container_width=True,
         disabled=(st.session_state.running or not api_key))
-
+ 
 st.divider()
-
+ 
 # phase strip
 c1, c2, c3 = st.columns(3)
 with c1:
@@ -783,137 +828,136 @@ with c2:
 with c3:
     st.markdown('<div class="phase-label">03 · SYNTHESIZE</div>', unsafe_allow_html=True)
     b3 = st.empty()
-
+ 
 st.divider()
-
+ 
 # stat strip
 s1, s2, s3, s4 = st.columns(4)
 sh  = s1.empty()
 ss  = s2.empty()
 sr  = s3.empty()
 st_ = s4.empty()
-
+ 
 st.divider()
 review_slot = st.empty()
 dl_slot     = st.empty()
-
+ 
 # restore on history navigation
 if st.session_state.review and not st.session_state.running:
     review_slot.markdown(st.session_state.review)
-
+ 
 if st.session_state.papers_top:
     tp = st.session_state.papers_top
     sh.markdown(stat_html(len(st.session_state.papers_all), "HARVESTED"), unsafe_allow_html=True)
     ss.markdown(stat_html(sum(1 for p in tp if p["source_tag"] == "SEMINAL"), "SEMINAL"), unsafe_allow_html=True)
     sr.markdown(stat_html(sum(1 for p in tp if p["source_tag"] == "RECENT"),  "RECENT"),  unsafe_allow_html=True)
     st_.markdown(stat_html(st.session_state.elapsed, "SECONDS"), unsafe_allow_html=True)
-
-
+ 
+ 
 # ═══════════════════════════════════════════════════════════════════
 #  PIPELINE
 # ═══════════════════════════════════════════════════════════════════
 if run and topic.strip() and api_key:
     topic  = topic.strip()
     model  = st.session_state.selected_model
-    gemini = get_client(api_key)
-
+ 
     st.session_state.running = True
     st.session_state.review  = ""
     t0 = time.time()
-
+ 
     sh.markdown(stat_html("…", "HARVESTED"), unsafe_allow_html=True)
     ss.markdown(stat_html("…", "SEMINAL"),   unsafe_allow_html=True)
     sr.markdown(stat_html("…", "RECENT"),    unsafe_allow_html=True)
     st_.markdown(stat_html("…", "SECONDS"),  unsafe_allow_html=True)
-
+ 
     # ── Phase 1: Harvest ─────────────────────────────────────────
     b1.info("Scanning Semantic Scholar in parallel…")
     papers_all = harvest_parallel(topic)
-
+ 
     if not papers_all:
         b1.error("No papers found — check topic spelling or try a broader term.")
         st.session_state.running = False
         st.stop()
-
+ 
     conn = db_connect()
     db_batch_upsert(conn, papers_all, topic)
     st.session_state.papers_all = papers_all
-
+ 
     n_s = sum(1 for p in papers_all if p["source_tag"] == "SEMINAL")
     n_r = sum(1 for p in papers_all if p["source_tag"] == "RECENT")
     b1.success(f"Harvested {len(papers_all)} unique papers")
     sh.markdown(stat_html(len(papers_all), "HARVESTED"), unsafe_allow_html=True)
     ss.markdown(stat_html(n_s, "SEMINAL"), unsafe_allow_html=True)
     sr.markdown(stat_html(n_r, "RECENT"),  unsafe_allow_html=True)
-
+ 
     with e1.expander(f"All {len(papers_all)} papers", expanded=False):
         st.markdown(
             "".join(card_html(p) for p in
                     sorted(papers_all, key=lambda x: x["citations"], reverse=True)),
             unsafe_allow_html=True)
-
+ 
     # ── Phase 2: Rank ─────────────────────────────────────────────
     b2.info("Scoring and ranking…")
     papers_top = rank_and_select(papers_all, topic)
     st.session_state.papers_top = papers_top
-
+ 
     for p in papers_top:
         conn.execute("UPDATE papers SET score=? WHERE id=?", (p["score"], p["id"]))
     conn.commit()
-
+ 
     b2.success(f"Selected top {len(papers_top)} papers")
     with e2.expander(f"Top {len(papers_top)} selected", expanded=True):
         st.markdown(
             "".join(card_html(p, rank=i + 1) for i, p in enumerate(papers_top)),
             unsafe_allow_html=True)
-
+ 
     # ── Phase 3: Synthesize ───────────────────────────────────────
-    model_display = model.replace("gemini-", "Gemini ").replace("-", " ").title()
+    model_display = model.split(":")[0].replace("-", " ").title()
     b3.info(f"Synthesizing with {model_display}…")
     prompt = build_prompt(topic, papers_top)
-
+ 
     accumulated = ""
     live = review_slot.empty()
-
+ 
     try:
-        for chunk in stream_synthesis(gemini, model, prompt):
+        for chunk in stream_synthesis(api_key, model, prompt):
             accumulated += chunk
             live.markdown(accumulated + "▌")
         live.markdown(accumulated)
     except Exception as e:
         err_str = str(e).lower()
-        if "api_key" in err_str or "invalid" in err_str or "unauthorized" in err_str:
-            b3.error("Invalid API key — check your Gemini key in the sidebar.")
+        if "401" in err_str or "unauthorized" in err_str or "forbidden" in err_str:
+            b3.error("Invalid API key — check your OpenRouter key in the sidebar.")
             st.session_state.running = False
             st.stop()
-        elif "quota" in err_str or "rate" in err_str:
+        elif "quota" in err_str or "rate" in err_str or "429" in err_str:
             b3.warning("Rate limit hit — running fallback (non-streaming)…")
-            accumulated = fallback_synthesis(gemini, model, topic, papers_top)
+            accumulated = fallback_synthesis(api_key, model, topic, papers_top)
             review_slot.markdown(accumulated)
         else:
             b3.warning(f"Streaming error ({e}) — running fallback…")
-            accumulated = fallback_synthesis(gemini, model, topic, papers_top)
+            accumulated = fallback_synthesis(api_key, model, topic, papers_top)
             review_slot.markdown(accumulated)
-
+ 
     if not is_essay(accumulated):
         b3.warning("Output malformed — running fallback…")
-        accumulated = fallback_synthesis(gemini, model, topic, papers_top)
+        accumulated = fallback_synthesis(api_key, model, topic, papers_top)
         review_slot.markdown(accumulated)
-
+ 
     st.session_state.review = accumulated
     bib_content = save_bibtex(papers_top)
-
+ 
     elapsed = int(time.time() - t0)
     st.session_state.elapsed = elapsed
     st_.markdown(stat_html(elapsed, "SECONDS"), unsafe_allow_html=True)
     b3.success(f"Complete — {elapsed}s")
-
+ 
     st.session_state.history.append({
         "topic": topic, "review": accumulated,
         "top": papers_top, "all": papers_all, "elapsed": elapsed,
     })
     st.session_state.running = False
-
+ 
     with dl_slot.container():
         st.divider()
         da, db_ = st.columns(2)
@@ -923,9 +967,9 @@ if run and topic.strip() and api_key:
         db_.download_button(
             "↓  Download BibTeX", data=bib_content,
             file_name="references.bib")
-
+ 
 elif run and not topic.strip():
     b1.warning("Please enter a research topic.")
-
+ 
 elif run and not api_key:
-    st.error("Enter your Gemini API key in the sidebar first.")
+    st.error("Enter your OpenRouter API key in the sidebar first.")
