@@ -25,10 +25,11 @@ MAX_WORKERS    = 8
  
 # OpenRouter model options
 MODEL_OPTIONS = {
+    "qwen/qwen3.6-plus-preview          (free)":                "qwen/qwen3.6-plus-preview:free",
     "meta-llama/llama-3.3-70b-instruct  (fast · recommended)": "meta-llama/llama-3.3-70b-instruct",
     "deepseek/deepseek-r1               (higher quality)":      "deepseek/deepseek-r1",
 }
-DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct"
+DEFAULT_MODEL = "qwen/qwen3.6-plus-preview:free"
  
 # ═══════════════════════════════════════════════════════════════════
 #  PAGE CONFIG  — must be first Streamlit call
